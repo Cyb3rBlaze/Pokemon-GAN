@@ -11,15 +11,17 @@ device = torch.device("cuda")
 
 # generator block for producing samples from noise
 class GeneratorBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, strides, padding):
+    def __init__(self, in_channels, out_channels, scale_factor):
         super().__init__()
 
-        self.conv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, padding=padding, stride=strides, bias=False)
+        self.upsample = nn.Upsample(scale_factor=scale_factor)
+        self.conv = nn.Conv2d(in_channels, out_channels, (3, 3), padding="same", bias=False)
         self.b_norm = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(True)
     
     def forward(self, x):
-        out = self.conv(x)
+        out = self.upsample(x)
+        out = self.conv(out)
         out = self.b_norm(out)
 
         return self.relu(out)
@@ -47,27 +49,29 @@ class Generator(nn.Module):
         super().__init__()
 
         self.batch_size = config.batch_size
-        # must sqrt to an integer
-        self.noise_dims = config.noise_dims
 
-        self.gen_blocks = [GeneratorBlock(config.noise_dims, config.gen_in_channels, 1, 0).to(device)]
+        self.gen_blocks = [GeneratorBlock(config.noise_dims, config.gen_in_channels, 4).to(device)]
         for i in range(config.num_gen_blocks):
-            self.gen_blocks += [GeneratorBlock(config.gen_in_channels, config.gen_in_channels, 2, 1).to(device)]
+            self.gen_blocks += [GeneratorBlock(config.gen_in_channels, config.gen_in_channels, 2).to(device)]
         
-        self.gen_blocks += [GeneratorBlock(config.gen_in_channels, int(config.gen_in_channels/2), 2, 1).to(device)]
+        self.gen_blocks += [GeneratorBlock(config.gen_in_channels, int(config.gen_in_channels/2), 2).to(device)]
 
-        self.final_conv_transpose = nn.ConvTranspose2d(int(config.gen_in_channels/2), 3, kernel_size=4, padding=1, stride=2, bias=False)
+        self.gen_blocks = nn.ModuleList(self.gen_blocks)
+
+        self.final_upsample = nn.Upsample(scale_factor=2)
+        self.final_conv = nn.Conv2d(int(config.gen_in_channels/2), 3, (3, 3), padding="same", bias=False)
 
         self.tanh = nn.Tanh()
     
     def forward(self, x):
         # dims[0] = batch_size, dims[1] = channels
-        out = torch.reshape(x, (self.batch_size, self.noise_dims, 1, 1))
+        out = x
 
         for i in range(len(self.gen_blocks)):
             out = self.gen_blocks[i](out)
         
-        out = self.final_conv_transpose(out)
+        out = self.final_upsample(out)
+        out = self.final_conv(out)
 
         return self.tanh(out)
 
@@ -89,9 +93,11 @@ class Discriminator(nn.Module):
             if prev_in_channels <= 64:
                 prev_in_channels *= 2
 
-        self.flatten = nn.Flatten()
+        self.dis_blocks = nn.ModuleList(self.dis_blocks)
 
         self.final_conv = nn.Conv2d(128, 1, kernel_size=4, stride=1, padding=0, bias=False)
+
+        self.flatten = nn.Flatten()
 
         self.sigmoid = nn.Sigmoid()
     

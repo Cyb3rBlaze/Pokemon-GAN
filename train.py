@@ -69,56 +69,52 @@ def train():
 
 
     # seeded input to verify generator training
-    test_input = torch.rand(config.batch_size, config.noise_dims).to(device)
+    test_input = torch.rand(1, config.noise_dims, 1, 1).to(device)
 
     for epoch in range(config.epochs):
         print("EPOCH: " + str(epoch))
         if epoch % 5 == 0:
             # seeded test output
             with torch.no_grad():
-                output = generator(test_input).detach()
+                output = generator(test_input)
 
                 save_image(denorm(output), "output/epoch_" + str(epoch) + ".jpg")
 
 
         # iterate through samples produced by dataloader  
         for i, batch in enumerate(dataloader):
-            if batch[0].shape[0] < config.batch_size:
-                break
-
             total_dis_loss = 0
 
-            # headstart for generator network training process to prevent diminishing gradients once discriminator converges
-            if epoch >= config.gen_headstart:
-                # DISCRIMINATOR TRAIN STEP
+
+            # DISCRIMINATOR TRAIN STEP
 
 
-                # initialize gradients of discriminator to zero to begin training step
-                dis_optimizer.zero_grad()
+            # initialize gradients of discriminator to zero to begin training step
+            dis_optimizer.zero_grad()
 
-                # train discriminator on real batch first
-                true_labels = (torch.rand(config.batch_size, 1, device=device) * (1 - 0.9) + 0.9).to(device)
+            # train discriminator on real batch first
+            true_labels = (torch.rand(batch[0].shape[0], 1, device=device) * (0.1 - 0) + 0).to(device)
 
-                true_output = discriminator((batch[0]).to(device))
+            true_output = discriminator((batch[0]).to(device))
 
-                true_loss = loss(true_output, true_labels)
+            true_loss = loss(true_output, true_labels)
 
-                # train discriminator on fake batch after - contains some noisy data to throw of discriminator
-                false_labels = (torch.rand(config.batch_size, 1, device=device) * (0.1 - 0) + 0).to(device)
+            # train discriminator on fake batch after - contains some noisy data to throw of discriminator
+            false_labels = (torch.rand(batch[0].shape[0], 1, device=device) * (1 - 0.9) + 0.9).to(device)
 
-                # training on generator output
-                false_input = torch.rand(config.batch_size, config.noise_dims).to(device)
-                false_gen_output = generator(false_input)
-                false_dis_output = discriminator(false_gen_output)
+            # training on generator output
+            false_input = torch.rand(batch[0].shape[0], config.noise_dims, 1, 1).to(device)
+            false_gen_output = generator(false_input)
+            false_dis_output = discriminator(false_gen_output)
 
-                false_loss = loss(false_dis_output, false_labels)
+            false_loss = loss(false_dis_output, false_labels)
 
-                # total discriminator loss
-                total_dis_loss = true_loss + false_loss
-                total_dis_loss.backward()
+            # total discriminator loss
+            total_dis_loss = true_loss + false_loss
+            total_dis_loss.backward()
 
-                # only apply gradients to update discriminator weights
-                dis_optimizer.step()
+            # only apply gradients to update discriminator weights
+            dis_optimizer.step()
 
 
             # GENERATOR TRAIN STEP
@@ -128,10 +124,10 @@ def train():
             gen_optimizer.zero_grad()
 
             # train generator on mispredicted discriminator labels
-            gen_labels = torch.ones((config.batch_size,1), dtype=torch.float).to(device)
+            gen_labels = torch.zeros((config.batch_size,1), dtype=torch.float).to(device)
 
             # train generator to trick discriminator
-            false_input = torch.rand(config.batch_size, config.noise_dims).to(device)
+            false_input = torch.rand(config.batch_size, config.noise_dims, 1, 1).to(device)
             false_gen_output = generator(false_input)
             train_gen_dis_output = discriminator(false_gen_output)
 
@@ -143,8 +139,7 @@ def train():
 
 
             if i % 200 == 0:
-                if epoch >= config.gen_headstart:
-                    print("Discriminator loss: " + str(torch.mean(total_dis_loss)))
+                print("Discriminator loss: " + str(torch.mean(total_dis_loss)))
                 print("Generator loss: " + str(torch.mean(gen_loss)))
         
 
